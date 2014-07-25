@@ -1,6 +1,8 @@
-#!/bin/python
+#!/usr/bin/python -tt
+# -*- coding: utf-8 -*-
 
 from pygtail import Pygtail
+import json
 import re
 import sys
 import os
@@ -34,14 +36,14 @@ handler = RainbowLoggingHandler(
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-
-def parse_args(self):
-    """ Parse args from console"""
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-c", "--config", help="Config file for your recovery",
-                        action="store")
-    option = parser.parse_args()
-    return option
+class ParseArgs:
+  def parse_args(self):
+      """ Parse args from console"""
+      parser = argparse.ArgumentParser()
+      parser.add_argument("-c", "--config", help="Config file for your recovery",
+                          action="store")
+      option = parser.parse_args()
+      return option
 
 
 def main():
@@ -69,12 +71,12 @@ def main():
     """ Get config option """
     ssh_privkey = config.get('ssh', 'private_key')
     ssh_user = config.get('ssh', 'user')
-    ssh_port = config.get('ssh', 'port')
+    ssh_port = int(config.get('ssh', 'port'))
     hosts = json.loads(config.get('main','hosts'))
     carbon_creates = config.get('main', 'carbon_creates')
 
     while 1:
-      privatekeyfile = os.path.expanduser(private_key)
+      privatekeyfile = os.path.expanduser(ssh_privkey)
 
       for line in Pygtail(carbon_creates):
           match = re.search(r"creating database file\s(.*)\s\(archive=", line)
