@@ -1,0 +1,8 @@
+[ssh]
+ssh_privkey: ~/.ssh/id_rsa
+ssh_user: carbon
+ssh_port: 22
+
+[main]
+hosts: []
+carbon_creates: /opt/graphite/storage/log/carbon-cache/creates.log

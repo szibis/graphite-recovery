@@ -1,0 +1,103 @@
+#!/bin/python
+
+from pygtail import Pygtail
+import re
+import sys
+import os
+import paramiko
+import ConfigParser
+import logging
+import argparse
+from rainbow_logging_handler import RainbowLoggingHandler
+
+#paramiko.util.log_to_file('/tmp/paramiko.log')
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.INFO)
+
+formatter = logging.Formatter('%(asctime)s - %(module)s - \
+%(funcName)s():Line:%(lineno)d - %(levelname)s - %(message)s')
+
+handler = RainbowLoggingHandler(
+  sys.stderr,
+  color_pathname=('white', 'red', True),
+  color_module=('yellow', None, False),
+  color_funcName=('yellow', 'black', False),
+  color_lineno=('green', None, False),
+  color_asctime=('white,' 'black', True),
+  color_levelname=('white', None, True)
+  )
+
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
+
+def parse_args(self):
+    """ Parse args from console"""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-c", "--config", help="Config file for your recovery",
+                        action="store")
+    option = parser.parse_args()
+    return option
+
+
+def main():
+    """ Main function to generate dashboards """
+    """ Parse option args """
+    parseargs = ParseArgs()
+    option = parseargs.parse_args()
+    if option.config is None:
+        logger.error('No -c or --config option specified, for more use -h',
+                    exc_info=True)
+        exit(1)
+    else:
+        config_opt = option.config
+    """ Load config file """
+    try:
+        config = ConfigParser.RawConfigParser()
+        config.read(config_opt)
+    except (SystemExit, KeyboardInterrupt):
+        raise
+    except Exception, e:
+        logger.error('Failed to open config file %s' % (config),
+                     exc_info=True)
+        exit(1)
+
+    """ Get config option """
+    ssh_privkey = config.get('ssh', 'private_key')
+    ssh_user = config.get('ssh', 'user')
+    ssh_port = config.get('ssh', 'port')
+    hosts = json.loads(config.get('main','hosts'))
+    carbon_creates = config.get('main', 'carbon_creates')
+
+    while 1:
+      privatekeyfile = os.path.expanduser(private_key)
+
+      for line in Pygtail(carbon_creates):
+          match = re.search(r"creating database file\s(.*)\s\(archive=", line)
+            if match:
+                wsp_file = match.group(1)
+                for host in hosts:
+                    transport = paramiko.Transport((host, ssh_port))
+                    mykey = paramiko.RSAKey.from_private_key_file(privatekeyfile)
+                    transport.connect(username = ssh_user, pkey = mykey)
+                    sftp = paramiko.SFTPClient.from_transport(transport)
+                    try:
+                        sftp.get(wsp_file, wsp_file)
+                        logger.error('Metric synced: %s' %(wsp_file),
+                                     exc_info=True)
+                    except:
+                        pass
+        sftp.close()
+        transport.close()
+
+
+if __name__ == '__main__':
+    try:
+      main()
+    except KeyboardInterrupt:
+      print >> sys.stderr, ' User interrupted.'
+      sys.exit(0)

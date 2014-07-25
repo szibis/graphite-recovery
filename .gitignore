@@ -1,0 +1,6 @@
+recovery.cfg
+*.egg-info
+*.pyc
+*.log
+build
+dist
