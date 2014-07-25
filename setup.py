@@ -15,7 +15,7 @@ def readme():
 
 setup(
     name='graphite-recovery',
-    version=graphite-recovery.__version__,
+    version=recovery.__version__,
     description='Graphite recovery whisper files from remote machine replic',
     long_description = readme(),
     author='SS',
