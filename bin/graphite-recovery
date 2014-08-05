@@ -75,7 +75,7 @@ def main():
                         sftp.get(wsp_file, wsp_file)
                         copy_elapsed = (time.time() - copy_start)
                         print '{0} -> localhost - Sync Success - (time: \
-{1:.2f} sec): {2}'.format(host, copy_elapsed, wsp_file)
+{1:.3f} sec): {2}'.format(host, copy_elapsed, wsp_file)
                     except IOError as e:
                         if e.errno == errno.ENOENT:
                             copy_elapsed = (time.time() - copy_start)
@@ -83,8 +83,8 @@ def main():
                             empty_hosts.append(host)
                             pass
                 if empty_hosts:
-                    print "Empty Hosts (time: {0:.2f} sec): \
-{1}".format(full_time, ', '.join(empty_hosts),)
+                    print "Empty Hosts (time: {0:.3f} sec): \
+{1}".format(full_time, ', '.join(empty_hosts))
         sftp.close()
         transport.close()
 
