@@ -2,16 +2,23 @@
 # -*- coding: utf-8 -*-
 
 from pygtail import Pygtail
+import threading
+import Queue
 import logging
 import time
 import errno
 import json
 import re
-import sys
 import os
 import paramiko
 import ConfigParser
 import argparse
+import resource
+from boto import ec2
+import boto.utils
+from distutils.util import strtobool
+
+logging.getLogger('paramiko.transport').addHandler(logging.StreamHandler())
 
 
 class ParseArgs:
@@ -24,74 +31,189 @@ class ParseArgs:
         option = parser.parse_args()
         return option
 
+# Main function to generate dashboards
+# Parse option args
+parseargs = ParseArgs()
+option = parseargs.parse_args()
 
-def main():
-    """ Main function to generate dashboards """
-    """ Parse option args """
-    parseargs = ParseArgs()
-    option = parseargs.parse_args()
-    if option.config is None:
-        logging.error('No -c or --config option specified, for more use -h',
-                      exc_info=True)
-        exit(1)
-    else:
-        config_opt = option.config
-    """ Load config file """
-    try:
-        config = ConfigParser.RawConfigParser()
-        config.read(config_opt)
-    except (SystemExit, KeyboardInterrupt):
-        raise
-    except Exception, e:
-        logging.error('Failed to open config file %s' % (config),
-                      exc_info=True)
-        exit(1)
+if option.config is None:
+    logging.error('No -c or --config option specified, for more use -h',
+                  exc_info=True)
+    exit(1)
+else:
+    config_opt = option.config
+# Load config file
+try:
+    config = ConfigParser.RawConfigParser()
+    config.read(config_opt)
+except (SystemExit, KeyboardInterrupt):
+    raise
+except Exception, e:
+    logging.error('Failed to open config file %s' % (config),
+                  exc_info=True)
+    exit(1)
 
-    """ Get config option """
-    ssh_privkey = config.get('ssh', 'private_key')
-    ssh_user = config.get('ssh', 'user')
-    ssh_port = int(config.get('ssh', 'port'))
-    hosts = json.loads(config.get('main', 'hosts'))
-    carbon_creates = config.get('main', 'carbon_creates')
+# Get config option
+ssh_privkey = config.get('ssh', 'private_key')
+ssh_user = config.get('ssh', 'user')
+ssh_port = int(config.get('ssh', 'port'))
+hosts = json.loads(config.get('main', 'hosts'))
+carbon_creates = config.get('main', 'carbon_creates')
+num_workers = int(config.get('main', 'num_workers'))
+fd = int(config.get('main', 'fd'))
+useec2 = config.getboolean('ec2', 'useec2')
+aws_key_id = config.get('ec2', 'aws_access_key_id')
+aws_key = config.get('ec2', 'aws_secret_access_key')
 
-    while 1:
-        mpkey = os.path.expanduser(ssh_privkey)
+
+class Recovery(threading.Thread):
+    def __init__(self,
+                 queue,
+                 carbon_creates,
+                 hosts,
+                 ssh_privkey,
+                 ssh_user,
+                 ssh_port):
+        threading.Thread.__init__(self)
+        self.queue = queue
+        self.carbon_creates = carbon_creates
+        self.hosts = hosts
+        self.ssh_privkey = ssh_privkey
+        self.ssh_user = ssh_user
+        self.ssh_port = ssh_port
+
+    def run(self):
+        while True:
+            try:
+                wsp_file = self.queue.get(timeout=1)
+                self.ssh_get(wsp_file)
+            except Queue.Empty:
+                break
+            finally:
+                try:
+                    self.queue.task_done()
+                except Exception:
+                    break
+
+    def ssh_get(self, wsp_file):
+                    # signal.signal(signal.SIGINT, signal.SIG_IGN)
+        mpkey = os.path.expanduser(self.ssh_privkey)
         sftp = None
+        full_time = float()
+        empty_hosts = []
+        full_start = time.time()
+        okhost = None
+        for host in self.hosts:
+            copy_start = time.time()
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            mykey = paramiko.RSAKey.from_private_key_file(mpkey)
+            ssh.connect(host, port=self.ssh_port,
+                        username=self.ssh_user,
+                        pkey=mykey,
+                        timeout=6.0)
+            sftp = ssh.open_sftp()
+            copy_elapsed = (time.time() - copy_start)
+            try:
+                sftp.get(wsp_file, wsp_file)
+                okhost = host
+                sftp.close()
+                copy_elapsed = (time.time() - copy_start)
+            except IOError as e:
+                if e.errno == errno.ENOENT:
+                    empty_hosts.append(host)
+                    sftp.close()
+                    pass
+        full_time = (time.time() - full_start)
+        print '{0}->local (Empty: {1} Time: {2:.3f}[sec]) - Success - \
+(Time: {3:.3f}[sec]): {4}'.format(okhost,
+                                  ', '.join(empty_hosts),
+                                  full_time,
+                                  copy_elapsed,
+                                  wsp_file)
 
-        for line in Pygtail(carbon_creates):
-            match = re.search(r"creating database file\s(.*)\s\(archive=",
-                              line)
-            if match:
-                wsp_file = match.group(1)
-                full_time = float()
-                empty_hosts = []
-                for host in hosts:
-                    copy_start = time.time()
-                    transport = paramiko.Transport((host, ssh_port))
-                    mykey = paramiko.RSAKey.from_private_key_file(mpkey)
-                    transport.connect(username=ssh_user, pkey=mykey)
-                    sftp = paramiko.SFTPClient.from_transport(transport)
-                    try:
-                        sftp.get(wsp_file, wsp_file)
-                        copy_elapsed = (time.time() - copy_start)
-                        print '{0} -> localhost - Sync Success - (time: \
-{1:.3f} sec): {2}'.format(host, copy_elapsed, wsp_file)
-                    except IOError as e:
-                        if e.errno == errno.ENOENT:
-                            copy_elapsed = (time.time() - copy_start)
-                            full_time = full_time + copy_elapsed
-                            empty_hosts.append(host)
-                            pass
-                if empty_hosts:
-                    print "Empty Hosts (time: {0:.3f} sec): \
-{1}".format(full_time, ', '.join(empty_hosts))
-        sftp.close()
-        transport.close()
+
+def producer(carbon_creates, work):
+    for line in Pygtail(carbon_creates):
+        match = re.search(r"creating database file\s(.*)\s\(archive=",
+                          line)
+        if match:
+            print "Add to queue: %s" % (match.group(1))
+            work.put(match.group(1))
+
+
+def main(carbon_creates,
+         ssh_privkey,
+         ssh_user,
+         ssh_port,
+         hosts,
+         num_workers):
+    # Run the program
+    queue = Queue.Queue()
+
+    print "Adding elements to queue..."
+    qcount = 0
+    for line in Pygtail(carbon_creates, paranoid=True):
+        match = re.search(r"creating database file\s(.*)\s\(archive=",
+                          line)
+        if match:
+            qcount = qcount + 1
+            queue.put(match.group(1))
+    print "Added %s path's to queue...." % (qcount)
+
+    print "Running threads....."
+    tcount = 0
+    try:
+        for i in range(num_workers):
+            t = Recovery(queue,
+                         carbon_creates,
+                         hosts,
+                         ssh_privkey,
+                         ssh_user,
+                         ssh_port)
+            t.setDaemon(True)
+            t.start()
+            tcount = tcount + 1
+        print "Started %s threads" % (tcount)
+    except (KeyboardInterrupt, SystemExit):
+        queue.join()
+        queue.terminate()
+    finally:
+        queue.join()
 
 
 if __name__ == '__main__':
-    try:
-        main()
-    except KeyboardInterrupt:
-        print >> sys.stderr, ' User interrupted.'
-        sys.exit(0)
+    # set fd limit
+    resource.setrlimit(resource.RLIMIT_NOFILE, (fd, fd))
+    # check and use recovery tag in ec2 instance
+    if useec2:
+        instance_id = boto.utils.get_instance_metadata()['instance-id']
+        region = boto.utils.get_instance_metadata()['placement']['availability-zone'][:-1]
+        connection = ec2.connect_to_region(region,
+                                           aws_access_key_id=aws_key_id,
+                                           aws_secret_access_key=aws_key,
+                                           is_secure=True)
+        reservations = connection.get_all_instances()
+        instances = [i for r in reservations for i in r.instances]
+        for instance in instances:
+            if instance.__dict__['id'] == instance_id:
+                try:
+                    tag_recovery = instance.__dict__['tags']['recovery']
+                    bool_tag_recovery = bool(strtobool(tag_recovery))
+                    if bool_tag_recovery is True:
+                        recovery = True
+                    else:
+                        recovery = False
+                except Exception:
+                    recovery = False
+                    pass
+    if recovery is True:
+        main(carbon_creates,
+             ssh_privkey,
+             ssh_user,
+             ssh_port,
+             hosts,
+             num_workers)
+    else:
+        print "If you use EC2 tag to start recovery you need add \
+recovery tag with True on recovered instance"

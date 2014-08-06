@@ -1,8 +1,18 @@
 [ssh]
-ssh_privkey: ~/.ssh/id_rsa
-ssh_user: carbon
-ssh_port: 22
+private_key: ~/.ssh/id_rsa
+user: carbon
+port: 22
+
+[ec2]
+# if true then use recovery tag to control recovery
+useec2: True
+aws_access_key_id: <ACCESS_KEY_ID>
+aws_secret_access_key: <SECRET_ACCESS_KEY>
 
 [main]
 hosts: ["127.0.0.1"]
 carbon_creates: /opt/graphite/storage/log/carbon-cache/creates.log
+# file descriptors limit
+fd: 8192
+# how many threads start
+num_workers: 8
