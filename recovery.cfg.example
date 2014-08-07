@@ -11,7 +11,7 @@ aws_secret_access_key: <SECRET_ACCESS_KEY>
 
 [main]
 hosts: ["127.0.0.1"]
-carbon_creates: /opt/graphite/storage/log/carbon-cache/creates.log
+carbon_creates: ["/opt/graphite/storage/log/carbon-cache/creates.log"]
 # file descriptors limit
 fd: 8192
 # how many threads start

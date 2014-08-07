@@ -58,7 +58,7 @@ ssh_privkey = config.get('ssh', 'private_key')
 ssh_user = config.get('ssh', 'user')
 ssh_port = int(config.get('ssh', 'port'))
 hosts = json.loads(config.get('main', 'hosts'))
-carbon_creates = config.get('main', 'carbon_creates')
+carbon_creates = json.locads(config.get('main', 'carbon_creates'))
 num_workers = int(config.get('main', 'num_workers'))
 fd = int(config.get('main', 'fd'))
 useec2 = config.getboolean('ec2', 'useec2')
@@ -153,13 +153,14 @@ def main(carbon_creates,
 
     print "Adding elements to queue..."
     qcount = 0
-    for line in Pygtail(carbon_creates, paranoid=True):
-        match = re.search(r"creating database file\s(.*)\s\(archive=",
-                          line)
-        if match:
-            qcount = qcount + 1
-            queue.put(match.group(1))
-    print "Added %s path's to queue...." % (qcount)
+    for create_file in carbon_creates:
+        for line in Pygtail(create_file, paranoid=True):
+            match = re.search(r"creating database file\s(.*)\s\(archive=",
+                              line)
+            if match:
+                qcount = qcount + 1
+                queue.put(match.group(1))
+        print "Added %s path's from %s to queue...." % (qcount, create_file)
 
     print "Running threads....."
     tcount = 0
