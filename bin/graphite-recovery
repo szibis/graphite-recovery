@@ -70,8 +70,7 @@ statsd_port = config.get('statsd', 'port')
 statsd_prefix = config.get('statsd', 'prefix')
 
 # initialize statsd
-sc = statsd.StatsClient(statsd_host, statsd_port, prefix=statsd_prefix)
-
+sc = statsd.StatsdClient(str(statsd_host), int(statsd_port), prefix=statsd_prefix, sample_rate=None)
 
 class Recovery(threading.Thread):
     def __init__(self,
@@ -80,7 +79,8 @@ class Recovery(threading.Thread):
                  hosts,
                  ssh_privkey,
                  ssh_user,
-                 ssh_port):
+                 ssh_port,
+                 qcountall):
         threading.Thread.__init__(self)
         self.queue = queue
         self.carbon_creates = carbon_creates
@@ -88,19 +88,20 @@ class Recovery(threading.Thread):
         self.ssh_privkey = ssh_privkey
         self.ssh_user = ssh_user
         self.ssh_port = ssh_port
+        self.qcountall = qcountall
 
     def run(self):
         while True:
             try:
                 wsp_file = self.queue.get(timeout=1)
                 self.ssh_get(wsp_file)
-                sc.incr('QueueTaskGet')
+                sc.incr('QueueTasksGet')
             except Queue.Empty:
                 break
             finally:
                 try:
                     self.queue.task_done()
-                    sc.incr('QueueTaskDone')
+                    sc.incr('QueueTasksDone')
                 except Exception:
                     break
 
@@ -140,6 +141,7 @@ class Recovery(threading.Thread):
                     pass
         sc.incr('FullCount')
         full_time = (time.time() - full_start)
+        sc.gauge('QueueTasksPut', qcountall)
         sc.timing('FullTime', full_time * 1000)
         print '{0}->local (Empty: {1} Time: {2:.3f}[sec]) - Success - \
 (Time: {3:.3f}[sec]): {4}'.format(okhost,
@@ -169,6 +171,7 @@ def main(carbon_creates,
 
     print "Adding elements to queue..."
     qcount = 0
+    qcountall = 0
     for create_file in carbon_creates:
         for line in Pygtail(create_file, paranoid=True):
             match = re.search(r"creating database file\s(.*)\s\(archive=",
@@ -176,8 +179,10 @@ def main(carbon_creates,
             if match:
                 qcount = qcount + 1
                 queue.put(match.group(1))
-                sc.incr('QueueTaskPut')
+                sc.incr('QueueTasksPut')
         print "Added %s path's from %s to queue...." % (qcount, create_file)
+    qcountall = qcountall + qcount
+    sc.gauge('QueueTasksPut', qcountall)
 
     print "Running threads....."
     tcount = 0
@@ -188,7 +193,8 @@ def main(carbon_creates,
                          hosts,
                          ssh_privkey,
                          ssh_user,
-                         ssh_port)
+                         ssh_port,
+                         qcountall)
             t.setDaemon(True)
             t.start()
             tcount = tcount + 1
