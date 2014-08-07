@@ -21,7 +21,7 @@ setup(
     author='SS',
     author_email='slawomir.skowron@gmail.com',
     url='git@github.com:szibis/graphite-recovery.git',
-    install_requires=['argparse','Pygtail','ConfigParser','paramiko'],
+    install_requires=['argparse','Pygtail','ConfigParser','paramiko', 'pystatsd', 'boto>=2.19.0'],
     zip_safe=False,
     scripts=[
         'bin/graphite-recovery'

@@ -17,6 +17,7 @@ import resource
 from boto import ec2
 import boto.utils
 from distutils.util import strtobool
+import statsd
 
 logging.getLogger('paramiko.transport').addHandler(logging.StreamHandler())
 
@@ -64,6 +65,12 @@ fd = int(config.get('main', 'fd'))
 useec2 = config.getboolean('ec2', 'useec2')
 aws_key_id = config.get('ec2', 'aws_access_key_id')
 aws_key = config.get('ec2', 'aws_secret_access_key')
+statsd_host = config.get('statsd', 'host')
+statsd_port = config.get('statsd', 'port')
+statsd_prefix = config.get('statsd', 'prefix')
+
+# initialize statsd
+sc = statsd.StatsClient(statsd_host, statsd_port, prefix=statsd_prefix)
 
 
 class Recovery(threading.Thread):
@@ -87,11 +94,13 @@ class Recovery(threading.Thread):
             try:
                 wsp_file = self.queue.get(timeout=1)
                 self.ssh_get(wsp_file)
+                sc.incr('QueueTaskGet')
             except Queue.Empty:
                 break
             finally:
                 try:
                     self.queue.task_done()
+                    sc.incr('QueueTaskDone')
                 except Exception:
                     break
 
@@ -116,15 +125,22 @@ class Recovery(threading.Thread):
             copy_elapsed = (time.time() - copy_start)
             try:
                 sftp.get(wsp_file, wsp_file)
+                sc.incr('SuccessHost')
                 okhost = host
                 sftp.close()
                 copy_elapsed = (time.time() - copy_start)
+                sc.timing('SuccessTime', copy_elapsed * 1000)
             except IOError as e:
                 if e.errno == errno.ENOENT:
                     empty_hosts.append(host)
+                    sc.incr('EmptyHost')
+                    empty_elapsed = (time.time() - copy_start)
+                    sc.timing('EmptyTime', empty_elapsed * 1000)
                     sftp.close()
                     pass
+        sc.incr('FullCount')
         full_time = (time.time() - full_start)
+        sc.timing('FullTime', full_time * 1000)
         print '{0}->local (Empty: {1} Time: {2:.3f}[sec]) - Success - \
 (Time: {3:.3f}[sec]): {4}'.format(okhost,
                                   ', '.join(empty_hosts),
@@ -160,6 +176,7 @@ def main(carbon_creates,
             if match:
                 qcount = qcount + 1
                 queue.put(match.group(1))
+                sc.incr('QueueTaskPut')
         print "Added %s path's from %s to queue...." % (qcount, create_file)
 
     print "Running threads....."
@@ -175,7 +192,8 @@ def main(carbon_creates,
             t.setDaemon(True)
             t.start()
             tcount = tcount + 1
-        print "Started %s threads" % (tcount)
+        pid = os.getpid()
+        print "Started %s threads on PID: %s" % (tcount, pid)
     except (KeyboardInterrupt, SystemExit):
         queue.join()
         queue.terminate()

@@ -9,6 +9,11 @@ useec2: True
 aws_access_key_id: <ACCESS_KEY_ID>
 aws_secret_access_key: <SECRET_ACCESS_KEY>
 
+[statsd]
+host: 127.0.0.1
+port: 8125
+prefix: <mtrics prefix in graphite>
+
 [main]
 hosts: ["127.0.0.1"]
 carbon_creates: ["/opt/graphite/storage/log/carbon-cache/creates.log"]
