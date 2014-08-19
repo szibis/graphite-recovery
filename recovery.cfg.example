@@ -3,6 +3,15 @@ private_key: ~/.ssh/id_rsa
 user: carbon
 port: 22
 
+[http]
+port: 8888
+# internal LAN url for whisper files access via HTTP
+url: http://example.local
+# list of location path that serving whisper files from whisper dir 
+location: ['recovery/carbon-cache/whisper']
+# HTTP keepalive enabled or disabled
+keepalive: True
+
 [ec2]
 # if true then use recovery tag to control recovery
 useec2: True
@@ -15,7 +24,9 @@ port: 8125
 prefix: <mtrics prefix in graphite>
 
 [main]
+# list of hosts in working graphite cluster 
 hosts: ["127.0.0.1"]
+# list of carbon-cache create log for every carbon-cache on graphite
 carbon_creates: ["/opt/graphite/storage/log/carbon-cache/creates.log"]
 # file descriptors limit
 fd: 8192
