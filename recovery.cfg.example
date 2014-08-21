@@ -24,10 +24,14 @@ port: 8125
 prefix: <mtrics prefix in graphite>
 
 [main]
+# choose ssh or http recovery
+recovery: http
 # list of hosts in working graphite cluster 
 hosts: ["127.0.0.1"]
 # list of carbon-cache create log for every carbon-cache on graphite
 carbon_creates: ["/opt/graphite/storage/log/carbon-cache/creates.log"]
+# graphite directory
+graphite_dir = /opt/graphite
 # file descriptors limit
 fd: 8192
 # how many threads start
