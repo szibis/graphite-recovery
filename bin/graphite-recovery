@@ -70,7 +70,11 @@ statsd_port = config.get('statsd', 'port')
 statsd_prefix = config.get('statsd', 'prefix')
 
 # initialize statsd
-sc = statsd.StatsdClient(str(statsd_host), int(statsd_port), prefix=statsd_prefix, sample_rate=None)
+sc = statsd.StatsdClient(str(statsd_host),
+                         int(statsd_port),
+                         prefix=statsd_prefix,
+                         sample_rate=None)
+
 
 class Recovery(threading.Thread):
     def __init__(self,
@@ -141,7 +145,7 @@ class Recovery(threading.Thread):
                     pass
         sc.incr('FullCount')
         full_time = (time.time() - full_start)
-        sc.gauge('QueueTasksPut', qcountall)
+        sc.gauge('QueueTasksPut', self.qcountall)
         sc.timing('FullTime', full_time * 1000)
         print '{0}->local (Empty: {1} Time: {2:.3f}[sec]) - Success - \
 (Time: {3:.3f}[sec]): {4}'.format(okhost,
