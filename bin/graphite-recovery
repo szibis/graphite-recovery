@@ -14,8 +14,8 @@ import boto.utils
 from distutils.util import strtobool
 import statsd
 from recovery.configparse import ParseArgs
-from recover.ssh import SshRecovery
-from recover.http import HttpRecovery
+from recovery.ssh import SshRecovery
+from recovery.http import HttpRecovery
 
 logging.getLogger('paramiko.transport').addHandler(logging.StreamHandler())
 
