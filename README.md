@@ -1,4 +1,4 @@
-graphite-recovery
+Graphite-recovery
 =================
 
-Tool for recovery whole machine from a replic data on other host
+Tool for recovery whole machine from a replic data on other hosts
