@@ -8,10 +8,12 @@ from recovery.configparse import ParseArgs
 
 class SshRecovery:
     def __init__(self,
+                 statsd,
                  queue,
                  qcountall):
         self.queue = queue
         self.qcountall = qcountall
+        self.sc = statsd
 
     def ssh_get(self, wsp_file):
 
@@ -45,12 +47,6 @@ class SshRecovery:
         statsd_port = config.get('statsd', 'port')
         statsd_prefix = config.get('statsd', 'prefix')
 
-        # initialize statsd
-        sc = statsd.StatsdClient(str(statsd_host),
-                                 int(statsd_port),
-                                 prefix=statsd_prefix,
-                                 sample_rate=None)
-
         mpkey = os.path.expanduser(ssh_privkey)
         sftp = None
         full_time = float()
@@ -70,23 +66,23 @@ class SshRecovery:
             copy_elapsed = (time.time() - copy_start)
             try:
                 sftp.get(wsp_file, wsp_file)
-                sc.incr('SuccessHost')
+                self.sc.incr('SuccessHost')
                 okhost = host
                 sftp.close()
                 copy_elapsed = (time.time() - copy_start)
-                sc.timing('SuccessTime', copy_elapsed * 1000)
+                self.sc.timing('SuccessTime', copy_elapsed * 1000)
             except IOError as e:
                 if e.errno == errno.ENOENT:
                     empty_hosts.append(host)
-                    sc.incr('EmptyHost')
+                    self.sc.incr('EmptyHost')
                     empty_elapsed = (time.time() - copy_start)
-                    sc.timing('EmptyTime', empty_elapsed * 1000)
+                    self.sc.timing('EmptyTime', empty_elapsed * 1000)
                     sftp.close()
                     pass
-        sc.incr('FullCount')
+        self.sc.incr('FullCount')
         full_time = (time.time() - full_start)
-        sc.gauge('QueueTasksPut', self.qcountall)
-        sc.timing('FullTime', full_time * 1000)
+        self.sc.gauge('QueueTasksPut', self.qcountall)
+        self.sc.timing('FullTime', full_time * 1000)
         print '{0}->local (Empty: {1} Time: {2:.3f}[sec]) - Success - \
 (Time: {3:.3f}[sec]): {4}'.format(okhost,
                                   ', '.join(empty_hosts),

@@ -8,14 +8,35 @@ from recovery.configparse import ParseArgs
 
 class HttpRecovery:
     def __init__(self,
+                 statsd,
                  wsp_file,
                  qcountall):
         self.wsp_file = wsp_file
         self.qcountall = qcountall
+        self.sc = statsd
 
     def http_get(self):
 
-        config = ParseArgs.getconfig()
+        parseargs = ParseArgs()
+        option = parseargs.parse_args()
+
+        if option.config is None:
+            logging.error('No -c or --config option specified, for more use -h',
+                          exc_info=True)
+            exit(1)
+        else:
+            config_opt = option.config
+        # Load config file
+        result = None
+        try:
+            config = ConfigParser.RawConfigParser()
+            result = config.read(config_opt)
+        except (SystemExit, KeyboardInterrupt):
+            raise
+        except Exception:
+            logging.error('Failed to open config file %s' % (config),
+                          exc_info=True)
+            exit(1)
 
         # Get config option
         http_port = int(config.get('http', 'port'))

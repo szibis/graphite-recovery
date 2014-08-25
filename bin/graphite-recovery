@@ -44,6 +44,7 @@ sc = statsd.StatsdClient(str(statsd_host),
 
 class Recovery(threading.Thread):
     def __init__(self,
+                 statsd
                  queue,
                  carbon_creates,
                  qcountall,
@@ -53,15 +54,20 @@ class Recovery(threading.Thread):
         self.carbon_creates = carbon_creates
         self.qcountall = qcountall
         self.recovery = recovery
+        self.statsd = statsd
 
     def run(self):
         while True:
             try:
                 wsp_file = self.queue.get(timeout=1)
                 if self.recovery is "ssh":
-                        SshRecovery.ssh_get(wsp_file)
+                        SshRecovery.ssh_get(self.statsd,
+                                            wsp_file,
+                                            self.qcountall)
                 if self.recovery is "http":
-                        HttpRecovery.http_get(wsp_file)
+                        HttpRecovery.http_get(self.statsd,
+                                              wsp_file,
+                                              self.qcountall)
                 sc.incr('QueueTasksGet')
             except Queue.Empty:
                 break
@@ -106,7 +112,8 @@ def main(carbon_creates,
     tcount = 0
     try:
         for i in range(num_workers):
-            t = Recovery(queue,
+            t = Recovery(sc,
+                         queue,
                          carbon_creates,
                          qcountall,
                          recovery)
