@@ -5,8 +5,6 @@ port: 22
 
 [http]
 port: 8888
-# internal LAN url for whisper files access via HTTP
-url: http://example.local
 # list of location path that serving whisper files from whisper dir 
 location: ['recovery/carbon-cache/whisper']
 # HTTP keepalive enabled or disabled

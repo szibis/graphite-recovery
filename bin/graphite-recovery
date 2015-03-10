@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from pygtail import Pygtail
+import ConfigParser
 import threading
 import Queue
 import logging
@@ -19,7 +20,26 @@ from recovery.http import HttpRecovery
 
 logging.getLogger('paramiko.transport').addHandler(logging.StreamHandler())
 
-config = ParseArgs.getconfig()
+parseargs = ParseArgs()
+option = parseargs.parse_args()
+
+if option.config is None:
+    logging.error('No -c or --config option specified, for more use -h',
+                  exc_info=True)
+    exit(1)
+else:
+    config_opt = option.config
+# Load config file
+result = None
+try:
+    config = ConfigParser.RawConfigParser()
+    result = config.read(config_opt)
+except (SystemExit, KeyboardInterrupt):
+    raise
+except Exception:
+    logging.error('Failed to open config file %s' % (config),
+                  exc_info=True)
+    exit(1)
 
 # Get config option
 recovery = config.get('main', 'recovery')
@@ -44,7 +64,7 @@ sc = statsd.StatsdClient(str(statsd_host),
 
 class Recovery(threading.Thread):
     def __init__(self,
-                 statsd
+                 statsd,
                  queue,
                  carbon_creates,
                  qcountall,
@@ -60,14 +80,16 @@ class Recovery(threading.Thread):
         while True:
             try:
                 wsp_file = self.queue.get(timeout=1)
-                if self.recovery is "ssh":
-                        SshRecovery.ssh_get(self.statsd,
+                if self.recovery=='ssh':
+                        sshrec = SshRecovery(self.statsd,
                                             wsp_file,
                                             self.qcountall)
-                if self.recovery is "http":
-                        HttpRecovery.http_get(self.statsd,
-                                              wsp_file,
-                                              self.qcountall)
+                        sshrec.ssh_get()
+                if self.recovery=='http':
+                        httprec = HttpRecovery(self.statsd,
+                                               wsp_file,
+                                               self.qcountall)
+                        httprec.http_get()
                 sc.incr('QueueTasksGet')
             except Queue.Empty:
                 break
@@ -148,13 +170,13 @@ if __name__ == '__main__':
                     tag_recovery = instance.__dict__['tags']['recovery']
                     bool_tag_recovery = bool(strtobool(tag_recovery))
                     if bool_tag_recovery is True:
-                        recovery = True
+                        ec2tag_recovery = True
                     else:
-                        recovery = False
+                        ec2tag_recovery = False
                 except Exception:
-                    recovery = False
+                    ec2tag_recovery = False
                     pass
-    if recovery is True:
+    if ec2tag_recovery is True:
         main(carbon_creates,
              recovery)
     else:
