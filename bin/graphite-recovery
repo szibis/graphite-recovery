@@ -1,6 +1,7 @@
 #!/usr/bin/python -tt
 # -*- coding: utf-8 -*-
 
+import time
 from pygtail import Pygtail
 import ConfigParser
 import threading
@@ -155,6 +156,7 @@ if __name__ == '__main__':
     # set fd limit
     resource.setrlimit(resource.RLIMIT_NOFILE, (fd, fd))
     # check and use recovery tag in ec2 instance
+    ec2tag_recovery = False
     if useec2:
         instance_id = boto.utils.get_instance_metadata()['instance-id']
         region = boto.utils.get_instance_metadata()['placement']['availability-zone'][:-1]
@@ -182,3 +184,6 @@ if __name__ == '__main__':
     else:
         print "If you use EC2 tag to start recovery you need add \
 recovery tag with True on recovered instance"
+        time.sleep(2)
+        main(carbon_creates,
+             recovery)
