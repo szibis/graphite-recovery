@@ -101,7 +101,6 @@ class Recovery(threading.Thread):
                 except Exception:
                     break
 
-
 def producer(carbon_creates, work):
     for line in Pygtail(carbon_creates):
         match = re.search(r"creating database file\s(.*)\s\(archive=",
