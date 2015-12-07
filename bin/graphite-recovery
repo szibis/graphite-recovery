@@ -1,4 +1,4 @@
-#!/usr/bin/python -tt
+#!/usr/bin/env python -tt
 # -*- coding: utf-8 -*-
 
 import time
@@ -49,6 +49,7 @@ hosts = json.loads(config.get('main', 'hosts'))
 carbon_creates = json.loads(config.get('main', 'carbon_creates'))
 num_workers = int(config.get('main', 'num_workers'))
 fd = int(config.get('main', 'fd'))
+match = config.get('main', 'regexp_match')
 useec2 = config.getboolean('ec2', 'useec2')
 aws_key_id = config.get('ec2', 'aws_access_key_id')
 aws_key = config.get('ec2', 'aws_secret_access_key')
@@ -120,7 +121,7 @@ def main(carbon_creates,
     qcountall = 0
     for create_file in carbon_creates:
         for line in Pygtail(create_file, paranoid=True):
-            match = re.search(r"creating database file\s(.*)\s\(archive=",
+            match = re.search(r"{0}".format(match),
                               line)
             if match:
                 qcount = qcount + 1

@@ -5,7 +5,7 @@ port: 22
 
 [http]
 port: 8888
-# list of location path that serving whisper files from whisper dir 
+# list of location path that serving whisper files from whisper dir
 location: ['recovery/carbon-cache/whisper']
 # HTTP keepalive enabled or disabled
 keepalive: True
@@ -24,7 +24,7 @@ prefix: <mtrics prefix in graphite>
 [main]
 # choose ssh or http recovery
 recovery: http
-# list of hosts in working graphite cluster 
+# list of hosts in working graphite cluster
 hosts: ["127.0.0.1"]
 # list of carbon-cache create log for every carbon-cache on graphite
 carbon_creates: ["/opt/graphite/storage/log/carbon-cache/creates.log"]
@@ -34,3 +34,7 @@ graphite_dir = /opt/graphite
 fd: 8192
 # how many threads start
 num_workers: 8
+# regexp match for graphite-web
+# regexp_match: "creating database file\s(.*)\s\(archive="
+# regexp match for go-carbon
+regexp_match: "\[persister\]\sCreating\s(.*)\s"
