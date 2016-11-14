@@ -4,70 +4,62 @@ import logging
 import ConfigParser
 import errno
 import os
+import sys
 import time
 from recovery.configparse import ParseArgs
 
+log = logging.getLogger()
+log.setLevel(logging.INFO)
+ch = logging.StreamHandler(sys.stdout)
+ch.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+log.addHandler(ch)
 
 class HttpRecovery:
     def __init__(self,
                  statsd,
                  wsp_file,
-                 qcountall):
+                 qcountall,
+                 http_port,
+                 http_location,
+                 graphite_dir,
+                 hosts):
         self.wsp_file = wsp_file
         self.qcountall = qcountall
         self.sc = statsd
+        self.http_port = http_port
+        self.http_location = http_location
+        self.graphite_dir = graphite_dir
+        self.hosts = hosts
 
     def http_get(self):
 
-        parseargs = ParseArgs()
-        option = parseargs.parse_args()
-
-        if option.config is None:
-            logging.error('No -c or --config option specified, \
-for more use -h', exc_info=True)
-            exit(1)
-        else:
-            config_opt = option.config
-        # Load config file
-#        result = None
-        try:
-            config = ConfigParser.RawConfigParser()
-            config.read(config_opt)
-        except (SystemExit, KeyboardInterrupt):
-            raise
-        except Exception:
-            logging.error('Failed to open config file %s' % (config_opt),
-                          exc_info=True)
-            exit(1)
-
-        # Get config option
-        http_port = config.get('http', 'port')
-        http_location = config.get('http', 'location')
-        graphite_dir = config.get('main', 'graphite_dir')
-        hosts = json.loads(config.get('main', 'hosts'))
         # get mirror whisper file from remote HTTP instance
 #        rslt = []
         full_time = float()
         empty_hosts = []
         full_start = time.time()
-        for host in hosts:
+        for host in self.hosts:
             copy_start = time.time()
 
-            whisper = self.wsp_file.replace(graphite_dir, "")
+            whisper = self.wsp_file.replace(self.graphite_dir, "")
 
-            endpoint = 'http://' + host + ':' + http_port + '/' + http_location + '/' + whisper
+            endpoint = 'http://' + host + ':' + self.http_port + '/' + self.http_location + '/' + whisper
+            log.info(endpoint)
             try:
-                src_file = urllib2.urlopen(endpoint, timeout=5)
+                #src_file = urllib2.urlopen(endpoint, timeout=5)
                 self.sc.incr('SuccessHost')
-                wsp_buffer = src_file.read()
+                #wsp_buffer = src_file.read()
 
                 if os.path.exists(os.path.dirname(self.wsp_file)) is False:
-                    os.makedirs(os.path.dirname(self.wsp_file))
+                    #os.makedirs(os.path.dirname(self.wsp_file))
+                    print os.path.dirname(self.wsp_file)
 
-                dst_file = open(self.wsp_file, 'wb')
-                dst_file.write(wsp_buffer)
-                print self.wsp_file
-                dst_file.close()
+                #dst_file = open(self.wsp_file, 'wb')
+                #dst_file.write(wsp_buffer)
+                #print self.wsp_file
+                #dst_file.close()
                 copy_elapsed = (time.time() - copy_start)
                 self.sc.timing('SuccessTime', copy_elapsed * 1000)
 #            except urllib2.HTTPError, e:
