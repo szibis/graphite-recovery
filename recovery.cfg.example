@@ -1,6 +1,6 @@
 [http]
-port: 8888
-# web servr location where graphite_dir is serverd for example /opt/graphite
+port: 9999
+# web servr location where graphite_dir is serverd
 location: recovery/whisper
 # HTTP keepalive enabled or disabled
 keepalive: True
@@ -14,18 +14,18 @@ aws_secret_access_key: <SECRET_ACCESS_KEY>
 [statsd]
 host: 127.0.0.1
 port: 8125
-prefix: graphite-recovery
+prefix: production.us-east-1.graphite-recovery
 
 [main]
 # recovery file's list - full paths from find
-recovery_infile = /tmp/recovery_input
+recovery_infile = <recovery_list_file>
 # recovery enable/disable file
 recovery_lock = /var/run/recovery.lock
 # list of hosts in working graphite cluster
-hosts: ["127.0.0.1"]
+hosts = ["<remote1>", "<remote2>"]
 # graphite directory
 graphite_dir = /opt/graphite
 # file descriptors limit
 fd: 8192
-# how many threads to start
-num_workers: 6
+# how many threads start
+num_workers: 4

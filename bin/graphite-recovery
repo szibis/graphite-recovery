@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import time
-from pygtail import Pygtail
 import ConfigParser
 import threading
 import Queue
@@ -12,6 +11,7 @@ import re
 import os
 import sys
 import resource
+import requests
 from boto import ec2
 import boto.utils
 from distutils.util import strtobool
@@ -30,7 +30,6 @@ log.addHandler(ch)
 
 parseargs = ParseArgs()
 option = parseargs.parse_args()
-
 if option.config is None:
     logging.error('No -c or --config option specified, for more use -h',
                   exc_info=True)
@@ -75,14 +74,17 @@ sc = statsd.StatsdClient(str(statsd_host),
 
 class Recovery(threading.Thread):
     def __init__(self,
+                 log,
                  statsd,
                  queue,
                  qcountall,
                  http_port,
                  http_location,
                  graphite_dir,
-                 hosts):
+                 hosts,
+                 session):
         threading.Thread.__init__(self)
+        self.log = log
         self.queue = queue
         self.qcountall = qcountall
         self.statsd = statsd
@@ -90,29 +92,39 @@ class Recovery(threading.Thread):
         self.http_location = http_location
         self.graphite_dir = graphite_dir
         self.hosts = hosts
+        self.session = session
+
 
     def run(self):
+        count_tasks = 0
         while True:
             try:
                 wsp_path = self.queue.get(timeout=1)
-                httprec = HttpRecovery(self.statsd,
-                                       wsp_path,
-                                       self.qcountall,
-                                       self.http_port,
-                                       self.http_location,
-                                       self.graphite_dir,
-                                       self.hosts)
+                httprec = HttpRecovery(self.log,
+                               self.statsd,
+                               wsp_path,
+                               self.qcountall,
+                               self.http_port,
+                               self.http_location,
+                               self.graphite_dir,
+                               self.hosts,
+                               self.session)
                 httprec.http_get()
-                sc.incr('QueueTasksGet')
+                sc.incr('recovery.queue.get.count')
+            except (KeyboardInterrupt, SystemExit):
+                self.queue.join()
+                self.queue.terminate()
+                break
             except Queue.Empty:
                 break
             finally:
                 try:
+                    count_tasks = count_tasks + 1
+                    log.debug("Tasks done: %s" % count_tasks)
                     self.queue.task_done()
-                    sc.incr('QueueTasksDone')
+                    sc.incr('recovery.queue.task_done.count')
                 except Exception:
                     break
-
 
 def main():
     # Run the program
@@ -123,26 +135,30 @@ def main():
     for infile in open(recovery_infile):
       qcount = qcount + 1
       queue.put(infile, timeout=1)
+      sc.incr('recovery.queue.put.count')
     qcountall = qcountall + qcount
-    sc.gauge('QueueTasksPut', qcountall)
+    sc.gauge('recovery.queue.all.count', qcountall)
     log.info("Added %s path's from %s to queue...." % (qcountall, recovery_infile))
 
-    log.info("Running %s number of threads" % (num_workers))
+    log.info("Running %s number of workers" % (num_workers))
     tcount = 0
     try:
         for i in range(num_workers):
-            t = Recovery(sc,
+            session = requests.Session()
+            t = Recovery(log,
+                         sc,
                          queue,
                          qcountall,
                          http_port,
                          http_location,
                          graphite_dir,
-                         hosts)
-            t.setDaemon(True)
+                         hosts,
+                         session)
+            t.daemon = True
             t.start()
             tcount = tcount + 1
         pid = os.getpid()
-        log.info("Started %s on PID: %s" % (tcount, pid))
+        log.info("Started worker on PID: %s" % (pid))
     except (KeyboardInterrupt, SystemExit):
         queue.join()
         queue.terminate()
@@ -154,7 +170,7 @@ if __name__ == '__main__':
     # set fd limit
     resource.setrlimit(resource.RLIMIT_NOFILE, (fd, fd))
 
-  
+
     # dodac obsluge locka /var/run/recovery.lock
 
 
