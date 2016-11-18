@@ -33,6 +33,7 @@ class HttpRecovery:
         self.hosts = hosts
         self.session = session
 
+
     def download_file(self, session, endpoint):
         copy_start = time.time()
         wsp_file = self.recovery_tmp()
@@ -56,29 +57,39 @@ class HttpRecovery:
            empty_elapsed = (time.time() - copy_start)
            return None, empty_elapsed, r
 
+
     def dir_create(self, wsp_file):
         if os.path.exists(os.path.dirname(self.wsp_file)) is False:
            os.makedirs(os.path.dirname(self.wsp_file))
 
+
+    def sparsify(self, wsp_file, environ):
+        command = "sudo /usr/bin/bucky-sparsify %s" % (wsp_file.rstrip('\r\n'))
+        self.log.debug(command)
+        sparsify = subprocess.Popen(
+                       command,
+                       env=environ,
+                       stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE,
+                       shell=True,
+                       preexec_fn=self.pre_fill()
+                  )
+        return sparsify
+
+
     def pre_fill(self):
         os.seteuid(2001)
+
 
     def prepare_http(self, host):
         whisper = self.wsp_file.replace(self.graphite_dir, "")
         endpoint = 'http://' + host + ':' + self.http_port + '/' + self.http_location + '/' + whisper
         return endpoint.rstrip('\r\n')
 
+
     def recovery_tmp(self):
         return self.wsp_file.replace(".wsp", ".wsp_recovery").rstrip('\n\r')
 
-#    def create_recovery(self, http_response):
-#        src_file = http_response.content
-#        temp_wsp = self.recovery_tmp()
-#        dst_file = open(temp_wsp, 'w')
-#        dst_file.write(src_file)
-#        self.log.info("Recovery file %s created"  % (temp_wsp))
-#        dst_file.close()
-#        return temp_wsp
 
     def http_get(self):
         environ = os.environ.copy()
@@ -122,15 +133,28 @@ class HttpRecovery:
                        )
                   self.log.debug(backfill.communicate())
                   backfill_elapsed = (time.time() - backfill_start)
-                  self.log.info("Backfilled data to %s in %s [ms] code: %s" % (self.wsp_file, backfill_elapsed * 1000, backfill.returncode))
-                  os.unlink(temp_wsp)
-                  # successTime for each file backfill
+                  if backfill.returncode == 0:
+                       self.log.info("[BackFill OK] data to %s in %s [ms] code: %s" % (self.wsp_file, backfill_elapsed * 1000, backfill.returncode))
+                       os.unlink(temp_wsp)
+                  elif backfill.returncode in (1, 2):
+                        if not os.path.isfile(self.wsp_file):
+                           rename_start = time.time()
+                           self.dir_create(self.wsp_file)
+                           os.rename(temp_wsp, self.wsp_file)
+                           sparsify = self.sparsify(self.wsp_file, environ)
+                           rename_elapsed = (time.time() - rename_start)
+                           if sparsify.returncode in (1, 2):
+                              self.log.info("[MV WSP] Rename no sparsify from recovery to %s in %s [ms]" % (self.wsp_file, rename_elapsed * 1000))
+                              pass
+                           self.log.info("[MV WSP] Rename and sparsify from recovery to %s in %s [ms]" % (self.wsp_file, rename_elapsed * 1000))
+                           pass
+                        else:
+                           os.unlink(temp_wsp)
+                           self.log.info("[BackFill FAIL] %s in %s [ms] code: %s" % (self.wsp_file, backfill_elapsed * 1000, backfill.returncode))
+                           pass
+                    # successTime for each file backfill
                   self.sc.incr('recovery.backfill.count')
                   self.sc.timing('recovery.backfill.time', backfill_elapsed * 1000)
-                  if backfill.returncode != 0:
-                     self.log.debug(backfill.communicate())
-                     os.unlink(temp_wsp)
-                     self.log.info("Backfill failed for %s in %s [ms] code: %s" % (self.wsp_file, backfill_elapsed * 1000, backfill.returncode))
                 elif temp_wsp is None:
                      empty_hosts.append(host)
                      self.sc.incr('recovery.empty.count')
