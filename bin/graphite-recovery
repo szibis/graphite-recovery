@@ -120,7 +120,7 @@ class Recovery(threading.Thread):
             finally:
                 try:
                     count_tasks = count_tasks + 1
-                    log.debug("Tasks done: %s" % count_tasks)
+                    log.info("Tasks done: %s" % count_tasks)
                     self.queue.task_done()
                     sc.incr('recovery.queue.task_done.count')
                 except Exception:
@@ -168,7 +168,7 @@ def main():
 
 if __name__ == '__main__':
     # set fd limit
-    resource.setrlimit(resource.RLIMIT_NOFILE, (fd, fd))
+    #resource.setrlimit(resource.RLIMIT_NOFILE, (fd, fd))
 
 
     # dodac obsluge locka /var/run/recovery.lock

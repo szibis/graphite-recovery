@@ -10,8 +10,6 @@ import sys
 import time
 import requests
 import subprocess
-import gevent.monkey
-gevent.monkey.patch_socket()
 from recovery.configparse import ParseArgs
 
 class HttpRecovery:
@@ -25,7 +23,7 @@ class HttpRecovery:
                  graphite_dir,
                  hosts,
                  session):
-        self.wsp_file = wsp_file
+        self.wsp_file = wsp_file.rstrip('\r\n')
         self.qcountall = qcountall
         self.log = log
         self.sc = statsd
@@ -35,21 +33,52 @@ class HttpRecovery:
         self.hosts = hosts
         self.session = session
 
+    def download_file(self, session, endpoint):
+        copy_start = time.time()
+        wsp_file = self.recovery_tmp()
+        # NOTE the stream=True parameter
+        r = session.get(endpoint, stream=True, timeout=0.3)
+        if r.status_code == requests.codes.ok:
+           self.dir_create(wsp_file)
+           copy_elapsed = (time.time() - copy_start)
+           # get file from remote count and time reporting
+           self.sc.incr('recovery.remote_get.count')
+           self.sc.timing('recovery.remote_get.time', copy_elapsed * 1000)
+           with open(wsp_file, 'wb') as f:
+              for chunk in r.iter_content(chunk_size=2548576):
+                  if chunk:
+                   f.write(chunk)
+                   #f.flush() commented by rec
+           f.close()
+           copy_elapsed = (time.time() - copy_start)
+           return wsp_file, copy_elapsed, r
+        elif r.status_code == requests.codes.not_found:
+           empty_elapsed = (time.time() - copy_start)
+           return None, empty_elapsed, r
+
+    def dir_create(self, wsp_file):
+        if os.path.exists(os.path.dirname(self.wsp_file)) is False:
+           os.makedirs(os.path.dirname(self.wsp_file))
+
+    def pre_fill(self):
+        os.seteuid(2001)
+
     def prepare_http(self, host):
         whisper = self.wsp_file.replace(self.graphite_dir, "")
         endpoint = 'http://' + host + ':' + self.http_port + '/' + self.http_location + '/' + whisper
         return endpoint.rstrip('\r\n')
 
     def recovery_tmp(self):
-        return self.wsp_file.replace(".wsp", ".wsp_recovery")
+        return self.wsp_file.replace(".wsp", ".wsp_recovery").rstrip('\n\r')
 
-    def create_recovery(self, http_response):
-        src_file = http_response.content
-        temp_wsp = self.recovery_tmp()
-        dst_file = open(temp_wsp, 'wb')
-        dst_file.write(src_file)
-        self.log.debug("Recovery file %s created"  % (temp_wsp))
-        dst_file.close()
+#    def create_recovery(self, http_response):
+#        src_file = http_response.content
+#        temp_wsp = self.recovery_tmp()
+#        dst_file = open(temp_wsp, 'w')
+#        dst_file.write(src_file)
+#        self.log.info("Recovery file %s created"  % (temp_wsp))
+#        dst_file.close()
+#        return temp_wsp
 
     def http_get(self):
         environ = os.environ.copy()
@@ -66,48 +95,43 @@ class HttpRecovery:
             logging.getLogger("urllib3").setLevel(logging.WARNING)
             try:
                 # making GET request with timeout for whisper file
-                r = self.session.get(endpoint, timeout=0.5)
+                temp_wsp, get_elapsed, r = self.download_file(self.session, endpoint)
                 self.log.debug(r.raise_for_status())
-                get_elapsed = (time.time() - copy_start)
                 self.log.debug("%s GET %s %s in %s" % (host, endpoint, r.status_code, get_elapsed * 1000))
-            #self.log.info("%s GET %s in %s [ms]" % (host, r.status_code, get_elapsed * 1000))
-            # create recovery file and backfill from remote hosts whisper files
-                if r.status_code == requests.codes.ok:
+                #self.log.info("%s GET %s in %s [ms]" % (host, r.status_code, get_elapsed * 1000))
+                # create recovery file and backfill from remote hosts whisper files
+                if temp_wsp:
                   # report ok response for host to statsd
                   self.sc.incr('recovery.getfile.count')
-                  # create full disrectory structure if not exist
-                  if os.path.exists(os.path.dirname(self.wsp_file)) is False:
-                     os.makedirs(os.path.dirname(self.wsp_file))
-                  # create temp recovery file
-                  self.create_recovery(r)
                   copy_elapsed = (time.time() - copy_start)
                   # get file from remote count and time reporting
                   self.sc.incr('recovery.remote_get.count')
                   self.sc.timing('recovery.remote_get.time', copy_elapsed * 1000)
-                  # use golang bucky-fill to backfill from downloaded recovered file to local whisper
-                  temp_wsp = self.recovery_tmp()
-                  try:
-                    backfill_elapsed = (time.time() - copy_start)
-                    command = "/usr/bin/bucky-fill %s %s" % (temp_wsp, self.wsp_file)
-                    self.log.info("Backfilled data to %s in %s [ms]" % (self.wsp_file, backfill_elapsed * 1000))
-                    backfill = subprocess.Popen(
+                  # use golang bucky-fill to backfill from downloaded recovered fiwsp_file is None
+                  backfill_start = time.time()
+                  #self.log.info("sudo -u carbon /usr/bin/bucky-fill %s %s" % (temp_wsp.rstrip('\r\n'), self.wsp_file.rstrip('\r\n')))
+                  command = "sudo /usr/bin/bucky-fill %s %s" % (temp_wsp.rstrip('\r\n'), self.wsp_file.rstrip('\r\n'))
+                  self.log.debug(command)
+                  backfill = subprocess.Popen(
                        command,
                        env=environ,
                        stdout=subprocess.PIPE,
                        stderr=subprocess.PIPE,
-                       shell=True
+                       shell=True,
+                       preexec_fn=self.pre_fill()
                        )
-                    os.unlink(temp_wsp)
-                    self.log.debug(backfill.communicate())
-                    # successTime for each file backfill
-                    self.sc.incr('recovery.backfill.count')
-                    self.sc.timing('recovery.backfill.time', backfill_elapsed * 1000)
-                  except:
-                    os.unlink(temp_wsp)
-                    self.log.info("Backfill failed for %s" % (self.wsp_file))
-                    self.log.debug(backfill.communicate())
-                # report empty hosts that return 404
-                elif r.status_code == requests.codes.not_found:
+                  self.log.debug(backfill.communicate())
+                  backfill_elapsed = (time.time() - backfill_start)
+                  self.log.info("Backfilled data to %s in %s [ms] code: %s" % (self.wsp_file, backfill_elapsed * 1000, backfill.returncode))
+                  os.unlink(temp_wsp)
+                  # successTime for each file backfill
+                  self.sc.incr('recovery.backfill.count')
+                  self.sc.timing('recovery.backfill.time', backfill_elapsed * 1000)
+                  if backfill.returncode != 0:
+                     self.log.debug(backfill.communicate())
+                     os.unlink(temp_wsp)
+                     self.log.info("Backfill failed for %s in %s [ms] code: %s" % (self.wsp_file, backfill_elapsed * 1000, backfill.returncode))
+                elif temp_wsp is None:
                      empty_hosts.append(host)
                      self.sc.incr('recovery.empty.count')
                      self.log.debug("Empty hosts: %s " % empty_hosts)
