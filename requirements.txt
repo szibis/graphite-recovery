@@ -1,4 +1,4 @@
 Pygtail
-paramiko
 ConfigParser
 argparse
+requests

@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import time
-from pygtail import Pygtail
 import ConfigParser
 import threading
 import Queue
@@ -10,20 +9,27 @@ import logging
 import json
 import re
 import os
+import sys
 import resource
+import requests
 from boto import ec2
 import boto.utils
 from distutils.util import strtobool
 import statsd
 from recovery.configparse import ParseArgs
-from recovery.ssh import SshRecovery
 from recovery.http import HttpRecovery
 
-logging.getLogger('paramiko.transport').addHandler(logging.StreamHandler())
+
+log = logging.getLogger()
+log.setLevel(logging.INFO)
+ch = logging.StreamHandler(sys.stdout)
+ch.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+log.addHandler(ch)
 
 parseargs = ParseArgs()
 option = parseargs.parse_args()
-
 if option.config is None:
     logging.error('No -c or --config option specified, for more use -h',
                   exc_info=True)
@@ -43,10 +49,10 @@ except Exception:
     exit(1)
 
 # Get config option
-recovery = config.get('main', 'recovery')
 graphite_dir = config.get('main', 'graphite_dir')
+recovery_infile = config.get('main', 'recovery_infile')
+recovery_lock = config.get('main', 'recovery_lock')
 hosts = json.loads(config.get('main', 'hosts'))
-carbon_creates = json.loads(config.get('main', 'carbon_creates'))
 num_workers = int(config.get('main', 'num_workers'))
 fd = int(config.get('main', 'fd'))
 useec2 = config.getboolean('ec2', 'useec2')
@@ -55,6 +61,9 @@ aws_key = config.get('ec2', 'aws_secret_access_key')
 statsd_host = config.get('statsd', 'host')
 statsd_port = config.get('statsd', 'port')
 statsd_prefix = config.get('statsd', 'prefix')
+http_port = config.get('http', 'port')
+http_location = config.get('http', 'location')
+http_keepalive = config.get('http', 'keepalive')
 
 # initialize statsd
 sc = statsd.StatsdClient(str(statsd_host),
@@ -65,85 +74,91 @@ sc = statsd.StatsdClient(str(statsd_host),
 
 class Recovery(threading.Thread):
     def __init__(self,
+                 log,
                  statsd,
                  queue,
-                 carbon_creates,
                  qcountall,
-                 recovery):
+                 http_port,
+                 http_location,
+                 graphite_dir,
+                 hosts,
+                 session):
         threading.Thread.__init__(self)
+        self.log = log
         self.queue = queue
-        self.carbon_creates = carbon_creates
         self.qcountall = qcountall
-        self.recovery = recovery
         self.statsd = statsd
+        self.http_port = http_port
+        self.http_location = http_location
+        self.graphite_dir = graphite_dir
+        self.hosts = hosts
+        self.session = session
+
 
     def run(self):
+        count_tasks = 0
         while True:
             try:
-                wsp_file = self.queue.get(timeout=1)
-                if self.recovery=='ssh':
-                        sshrec = SshRecovery(self.statsd,
-                                            wsp_file,
-                                            self.qcountall)
-                        sshrec.ssh_get()
-                if self.recovery=='http':
-                        httprec = HttpRecovery(self.statsd,
-                                               wsp_file,
-                                               self.qcountall)
-                        httprec.http_get()
-                sc.incr('QueueTasksGet')
+                wsp_path = self.queue.get(timeout=1)
+                httprec = HttpRecovery(self.log,
+                               self.statsd,
+                               wsp_path,
+                               self.qcountall,
+                               self.http_port,
+                               self.http_location,
+                               self.graphite_dir,
+                               self.hosts,
+                               self.session)
+                httprec.http_get()
+                sc.incr('recovery.queue.get.count')
+            except (KeyboardInterrupt, SystemExit):
+                self.queue.join()
+                self.queue.terminate()
+                break
             except Queue.Empty:
                 break
             finally:
                 try:
+                    count_tasks = count_tasks + 1
+                    log.info("Tasks done: %s" % count_tasks)
                     self.queue.task_done()
-                    sc.incr('QueueTasksDone')
+                    sc.incr('recovery.queue.task_done.count')
                 except Exception:
                     break
 
-def producer(carbon_creates, work):
-    for line in Pygtail(carbon_creates):
-        match = re.search(r"creating database file\s(.*)\s\(archive=",
-                          line)
-        if match:
-            print "Add to queue: %s" % (match.group(1))
-            work.put(match.group(1))
-
-
-def main(carbon_creates,
-         recovery):
+def main():
     # Run the program
     queue = Queue.Queue()
-
-    print "Adding elements to queue..."
+    log.info("Adding elements to queue...")
     qcount = 0
     qcountall = 0
-    for create_file in carbon_creates:
-        for line in Pygtail(create_file, paranoid=True):
-            match = re.search(r"creating database file\s(.*)\s\(archive=",
-                              line)
-            if match:
-                qcount = qcount + 1
-                queue.put(match.group(1))
-                sc.incr('QueueTasksPut')
-        print "Added %s path's from %s to queue...." % (qcount, create_file)
+    for infile in open(recovery_infile):
+      qcount = qcount + 1
+      queue.put(infile, timeout=1)
+      sc.incr('recovery.queue.put.count')
     qcountall = qcountall + qcount
-    sc.gauge('QueueTasksPut', qcountall)
+    sc.gauge('recovery.queue.all.count', qcountall)
+    log.info("Added %s path's from %s to queue...." % (qcountall, recovery_infile))
 
-    print "Running threads....."
+    log.info("Running %s number of workers" % (num_workers))
     tcount = 0
     try:
         for i in range(num_workers):
-            t = Recovery(sc,
+            session = requests.Session()
+            t = Recovery(log,
+                         sc,
                          queue,
-                         carbon_creates,
                          qcountall,
-                         recovery)
-            t.setDaemon(True)
+                         http_port,
+                         http_location,
+                         graphite_dir,
+                         hosts,
+                         session)
+            t.daemon = True
             t.start()
             tcount = tcount + 1
         pid = os.getpid()
-        print "Started %s threads on PID: %s" % (tcount, pid)
+        log.info("Started worker on PID: %s" % (pid))
     except (KeyboardInterrupt, SystemExit):
         queue.join()
         queue.terminate()
@@ -153,7 +168,12 @@ def main(carbon_creates,
 
 if __name__ == '__main__':
     # set fd limit
-    resource.setrlimit(resource.RLIMIT_NOFILE, (fd, fd))
+    #resource.setrlimit(resource.RLIMIT_NOFILE, (fd, fd))
+
+
+    # dodac obsluge locka /var/run/recovery.lock
+
+
     # check and use recovery tag in ec2 instance
     ec2tag_recovery = False
     if useec2:
@@ -178,11 +198,9 @@ if __name__ == '__main__':
                     ec2tag_recovery = False
                     pass
     if ec2tag_recovery is True:
-        main(carbon_creates,
-             recovery)
+        main()
     else:
-        print "If you use EC2 tag to start recovery you need add \
-recovery tag with True on recovered instance"
+        log.info("If you use EC2 tag to start recovery you need add \
+recovery tag with True on recovered instance")
         time.sleep(2)
-        main(carbon_creates,
-             recovery)
+        main()
