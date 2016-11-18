@@ -1,36 +1,31 @@
-[ssh]
-private_key: ~/.ssh/id_rsa
-user: carbon
-port: 22
-
 [http]
-port: 8888
-# list of location path that serving whisper files from whisper dir 
-location: ['recovery/carbon-cache/whisper']
+port: 9999
+# web servr location where graphite_dir is serverd
+location: recovery/whisper
 # HTTP keepalive enabled or disabled
 keepalive: True
 
 [ec2]
 # if true then use recovery tag to control recovery
-useec2: True
+useec2: False
 aws_access_key_id: <ACCESS_KEY_ID>
 aws_secret_access_key: <SECRET_ACCESS_KEY>
 
 [statsd]
 host: 127.0.0.1
 port: 8125
-prefix: <mtrics prefix in graphite>
+prefix: production.us-east-1.graphite-recovery
 
 [main]
-# choose ssh or http recovery
-recovery: http
-# list of hosts in working graphite cluster 
-hosts: ["127.0.0.1"]
-# list of carbon-cache create log for every carbon-cache on graphite
-carbon_creates: ["/opt/graphite/storage/log/carbon-cache/creates.log"]
+# recovery file's list - full paths from find
+recovery_infile = <recovery_list_file>
+# recovery enable/disable file
+recovery_lock = /var/run/recovery.lock
+# list of hosts in working graphite cluster
+hosts = ["<remote1>", "<remote2>"]
 # graphite directory
 graphite_dir = /opt/graphite
 # file descriptors limit
 fd: 8192
 # how many threads start
-num_workers: 8
+num_workers: 4
