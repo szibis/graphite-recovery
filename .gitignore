@@ -1,4 +1,4 @@
-*.cfg
+recovery.cfg
 *.egg-info
 *.pyc
 *.log
