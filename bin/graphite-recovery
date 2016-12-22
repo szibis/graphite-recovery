@@ -84,7 +84,6 @@ class Recovery(threading.Thread):
                  hosts,
                  session):
         threading.Thread.__init__(self)
-        self.lock = threading.Lock()
         self.log = log
         self.queue = queue
         self.qcountall = qcountall
@@ -100,7 +99,6 @@ class Recovery(threading.Thread):
         count_tasks = 0
         while True:
             try:
-                self.lock.acquire()
                 wsp_path = self.queue.get(timeout=1)
                 httprec = HttpRecovery(self.log,
                                self.statsd,
@@ -116,20 +114,16 @@ class Recovery(threading.Thread):
             except (KeyboardInterrupt, SystemExit):
                 self.queue.join()
                 self.queue.terminate()
-                self.lock.release()
                 break
             except Queue.Empty:
-                self.lock.release()
                 break
             finally:
                 try:
                     count_tasks = count_tasks + 1
-                    log.debug("Tasks done: %s" % count_tasks)
+                    log.info("Tasks done: %s" % count_tasks)
                     self.queue.task_done()
-                    self.lock.release()
                     sc.incr('recovery.queue.task_done.count')
                 except Exception:
-                    self.lock.release()
                     pass
 
 def main():

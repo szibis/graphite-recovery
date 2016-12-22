@@ -10,8 +10,6 @@ import sys
 import time
 import requests
 import subprocess
-from pwd import getpwuid
-from grp import getgrgid
 from recovery.configparse import ParseArgs
 
 class HttpRecovery:
@@ -61,28 +59,8 @@ class HttpRecovery:
 
 
     def dir_create(self, wsp_file):
-        if not os.path.isdir(os.path.dirname(wsp_file)):
-           try:
-              os.makedirs(os.path.dirname(wsp_file))
-           except OSError as exc:
-                  if exc.errno == errno.EEXIST and os.path.isdir(os.path.dirname(wsp_file)):
-                     pass
-                  else:
-                     raise
-           os.chown(os.path.dirname(wsp_file), 2001, 2001)
-        else:
-           os.chown(os.path.dirname(wsp_file), 2001, 2001)
-
-
-    def wsp_permissions(self, wsp_file):
-        try:
-           if os.stat(wsp_file):
-              if getpwuid(os.stat(wsp_file).st_uid) != 2001:
-                 os.chown(os.path.dirname(wsp_file), 2001, 2001)
-              elif getgrgid(os.stat(wsp_file).st_gid) != 2001:
-                   os.chown(os.path.dirname(wsp_file), 2001, 2001)
-        except:
-           raise
+        if os.path.exists(os.path.dirname(self.wsp_file)) is False:
+           os.makedirs(os.path.dirname(self.wsp_file))
 
 
     def sparsify(self, wsp_file, environ):
@@ -93,15 +71,15 @@ class HttpRecovery:
                        env=environ,
                        stdout=subprocess.PIPE,
                        stderr=subprocess.PIPE,
-                       shell=True
-                       #preexec_fn=self.set_permissions()
+                       shell=True,
+                       preexec_fn=self.set_permissions()
                   )
         return sparsify
 
 
-#    def set_permissions(self):
-#        os.seteuid(2001)
-#        #os.setegid(2001)
+    def set_permissions(self):
+        os.seteuid(2001)
+        #os.setegid(2001)
 
 
     def prepare_http(self, host):
@@ -151,8 +129,8 @@ class HttpRecovery:
                        env=environ,
                        stdout=subprocess.PIPE,
                        stderr=subprocess.PIPE,
-                       shell=True
-                       #preexec_fn=self.set_permissions()
+                       shell=True,
+                       preexec_fn=self.set_permissions()
                        )
                   self.log.debug(backfill.communicate())
                   backfill_elapsed = (time.time() - backfill_start)
@@ -162,17 +140,10 @@ class HttpRecovery:
                   elif backfill.returncode in (1, 2):
                         if not os.path.isfile(self.wsp_file):
                            rename_start = time.time()
-                           try:
-                              self.dir_create(self.wsp_file)
-                              self.wsp_permissions(self.wsp_file)
-                           except OSError:
-                              pass
-                           try:
-                              os.rename(temp_wsp, self.wsp_file)
-                              self.wsp_permissions(self.wsp_file)
-                              sparsify = self.sparsify(self.wsp_file, environ)
-                           except:
-                              raise
+                           self.dir_create(self.wsp_file)
+                           self.set_permissions()
+                           os.rename(temp_wsp, self.wsp_file)
+                           sparsify = self.sparsify(self.wsp_file, environ)
                            rename_elapsed = (time.time() - rename_start)
                            if sparsify.returncode in (1, 2):
                               self.log.info("[MV WSP] Rename no sparsify from recovery to %s in %s [ms]" % (self.wsp_file, rename_elapsed * 1000))
@@ -196,7 +167,6 @@ class HttpRecovery:
                      continue
                 # report failed hosts other then 404 and 200 response
                 elif r.status_code != requests.codes.not_found or r.status_code != requests.codes.ok:
-                     # write recovery error path's to file
                      self.sc.incr('recovery.error.count')
                      self.log.debug("Error on hosts: %s %s" % (host, r.status_code))
                      empty_elapsed = (time.time() - copy_start)
