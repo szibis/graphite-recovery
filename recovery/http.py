@@ -55,7 +55,7 @@ class HttpRecovery:
            f.close()
            copy_elapsed = (time.time() - copy_start)
            return wsp_file, copy_elapsed, r
-        elif r.status_code == requests.codes.not_found:
+        else:
            empty_elapsed = (time.time() - copy_start)
            return None, empty_elapsed, r
 
@@ -99,10 +99,6 @@ class HttpRecovery:
         return sparsify
 
 
-#    def set_permissions(self):
-#        os.seteuid(2001)
-#        #os.setegid(2001)
-
 
     def prepare_http(self, host):
         whisper = self.wsp_file.replace(self.graphite_dir, "")
@@ -130,6 +126,9 @@ class HttpRecovery:
             try:
                 # making GET request with timeout for whisper file
                 temp_wsp, get_elapsed, r = self.download_file(self.session, endpoint)
+                if temp_wsp is None:
+                   self.log.info("[BackFill FAILED] data to %s with code: %s" % (self.wsp_file, r.status_code))
+                   continue
                 #self.log.info(r.raise_for_status())
                 self.log.debug("%s GET %s %s in %s" % (host, endpoint, r.status_code, get_elapsed * 1000))
                 #self.log.info("%s GET %s in %s [ms]" % (host, r.status_code, get_elapsed * 1000))
