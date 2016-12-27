@@ -127,7 +127,7 @@ class HttpRecovery:
                 # making GET request with timeout for whisper file
                 temp_wsp, get_elapsed, r = self.download_file(self.session, endpoint)
                 if temp_wsp is None:
-                   self.log.info("[BackFill FAILED] data to %s with code: %s" % (self.wsp_file, r.status_code))
+                   self.log.info("[BackFill FAILED] data to %s with http_code: %s" % (self.wsp_file, r.status_code))
                    continue
                 #self.log.info(r.raise_for_status())
                 self.log.debug("%s GET %s %s in %s" % (host, endpoint, r.status_code, get_elapsed * 1000))
@@ -156,7 +156,7 @@ class HttpRecovery:
                   self.log.debug(backfill.communicate())
                   backfill_elapsed = (time.time() - backfill_start)
                   if backfill.returncode == 0:
-                       self.log.info("[BackFill OK] data to %s in %s [ms] code: %s" % (self.wsp_file, backfill_elapsed * 1000, backfill.returncode))
+                       self.log.info("[BackFill OK] data to %s in %s [ms] backfill_code: %s" % (self.wsp_file, backfill_elapsed * 1000, backfill.returncode))
                        os.unlink(temp_wsp)
                   elif backfill.returncode in (1, 2):
                         if not os.path.isfile(self.wsp_file):
@@ -182,7 +182,7 @@ class HttpRecovery:
                         else:
                            os.unlink(temp_wsp)
                            self.sc.incr('recovery.backfill.fail.count')
-                           self.log.info("[BackFill FAIL] %s in %s [ms] code: %s" % (self.wsp_file, backfill_elapsed * 1000, backfill.returncode))
+                           self.log.info("[BackFill FAIL] %s in %s [ms] backfill_code: %s" % (self.wsp_file, backfill_elapsed * 1000, backfill.returncode))
                   # successTime for each file backfill
                   self.sc.incr('recovery.backfill_rename.success.count')
                   self.sc.timing('recovery.backfill.time', backfill_elapsed * 1000)
